@@ -1,0 +1,6 @@
+*.pt
+venv/
+videos_/
+runs/
+__pycache__/
+```
