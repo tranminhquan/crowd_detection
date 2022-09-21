@@ -44,33 +44,33 @@ def detect(model, video_path, show = True):
                                 (0, 255, 0), 2)
             # Display the resulting frame
             frame = cv2.resize(frame, (640,480))
-            frame = cv2.putText(frame,f'Number of people {len(boxes)}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,225))
+            frame = cv2.putText(x,f'Number of people {len(boxes)}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,225))
             cv2.imshow(str(video_path),frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         else:
-            # print(f'{video_path} {len(boxes)}')
+            print(f'{video_path} {len(boxes)}')
             pass
         
-if __name__ == '__main__':
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-    model.classes = [0]
-    model.cpu()
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+model.classes = [0]
+model.cpu()
+# if __name__ == '__main__':
 
-    video_paths = Path('videos').glob('*')
-    # number_cpu = multiprocessing.cpu_count()
-    try:
-        start = time.time()
-        # thread_list = [multiprocessing.Process(target=detect,args=(model,str(video_path),True)) for video_path in video_paths]
-        thread_list = [threading.Thread(target=detect,args=(model,str(video_path),False)) for video_path in video_paths]
-        for thread in thread_list:
-            thread.start()
-        for thread in thread_list:
-            thread.join()
-        end = time.time()
-        print('Time taken: ', end-start)
-    except:
-        print('Error: unable to start thread')
+    # video_paths = Path('videos').glob('*')
+    # # number_cpu = multiprocessing.cpu_count()
+    # try:
+    #     start = time.time()
+    #     # thread_list = [multiprocessing.Process(target=detect,args=(model,str(video_path),True)) for video_path in video_paths]
+    #     thread_list = [threading.Thread(target=detect,args=(model,str(video_path),False)) for video_path in video_paths]
+    #     for thread in thread_list:
+    #         thread.start()
+    #     for thread in thread_list:
+    #         thread.join()
+    #     end = time.time()
+    #     print('Time taken: ', end-start)
+    # except:
+    #     print('Error: unable to start thread')
     # except Exception as e:
     #     print(e)
     #     print('Error: unable to start thread')

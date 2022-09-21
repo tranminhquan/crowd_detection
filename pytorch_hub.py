@@ -43,24 +43,24 @@ def detect(model, video_path, show = True):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         else:
-            # print(f'{video_path} {len(boxes)}')
+            print(f'{video_path} {len(boxes)}')
             pass
         
 
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
 model.classes = [0]
-model.cpu()
+# model.cpu()
 
-video_paths = list(Path('videos').glob('*'))
+# video_paths = list(Path('videos').glob('*'))
 
-try:
-    start = time.time()
-    thread_list = [threading.Thread(target=detect,args=(model,str(video_path),True)) for video_path in video_paths]
-    for thread in thread_list:
-        thread.start()
-    for thread in thread_list:
-        thread.join()
-    end = time.time()
-    print('Time taken: ', end-start)
-except:
-    print('Error: unable to start thread')
+# try:
+#     start = time.time()
+#     thread_list = [threading.Thread(target=detect,args=(model,str(video_path),True)) for video_path in video_paths]
+#     for thread in thread_list:
+#         thread.start()
+#     for thread in thread_list:
+#         thread.join()
+#     end = time.time()
+#     print('Time taken: ', end-start)
+# except:
+#     print('Error: unable to start thread')
