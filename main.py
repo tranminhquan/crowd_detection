@@ -1,14 +1,21 @@
+from datetime import datetime
 import os
+from pathlib import Path
 import streamlit as st
 import cv2
 from stream import show_sidebar, show_drawing
 import numpy as np
 import plotly.express as px  
 import plotly.figure_factory as ff
+import plotly.graph_objects as go
 import pandas as pd 
 from threading import Thread
 from detect import detect
 import torch
+
+from statsmodels.tsa.stattools import adfuller
+import pmdarima as pm
+
 ROOT_PATH = os.path.join(os.getcwd(), 'videos')
 
 def get_images(video_path):
@@ -52,10 +59,12 @@ def main():
 
         areas_info[video_path], areas_draw[video_path],areas_crowd[video_path] = show_drawing.show(stroke_width, stroke_color, image, drawing_mode, scale_width, scale_height, None, key = video_path)
     print('skip_frame', skip_frame)
-    if st.button("Start setting"):
+    st.spinner('Testing...')
+    if st.button("Start setting", key = 'start_proccess'):
      
         state.start = True
         state.run = False
+        state.show_frames = False
         caps = {}
         fps = {}
         for video_path in path:
@@ -65,7 +74,7 @@ def main():
         state.caps = caps
         state.process = True
         placeholder = st.empty()
-        results = {'time': [],'area': [], 'count': [], 'crowd_level': []}
+        results = {'time': [],'area': [], 'count': [], 'crowd_level': [],'time_end': []}
         id_frame = 0
         boxes = {}
         frames = {}
@@ -125,8 +134,11 @@ def main():
                         crowd_level = 'very_high'
                         
                     #update results dict
-                    # results['time'].append(id_frame / fps[video])
-                    results['time'].append(id_frame)
+                    results['time'].append(timestamp2datetime( id_frame / fps[video]))
+                    # results['time'].append(id_frame)
+                    results['time_end'].append(timestamp2datetime( id_frame / fps[video] + 1))
+
+                    # results['time'].append(id_frame)
                     results['area'].append(area_name)
                     results['count'].append(count)
                     results['crowd_level'].append(crowd_level)
@@ -135,22 +147,70 @@ def main():
             #convert results dict to pandas dataframe
             df = pd.DataFrame(results)
             #add column time_end = time + 1/fps to calculate the duration of each area
-            df['time_end'] = df['time'] + 1
-            print(df)
+            # df['time_end'] = df['time'] + 1
+            # print(df)
+            #group by area and time to calculate the duration of each area
+            df = df.groupby(['area', 'time', 'time_end']).agg({'count': 'max', 'crowd_level': 'max'}).reset_index()
+            # df = df.groupby(['area', 'time', 'time_end','crowd_level']).agg({'count': 'mean', 'crowd_level': }).reset_index()
             with placeholder.container():
             
                 #plot the results
-                tab1, tab2 = st.tabs(['Count', 'Crowd level'])
+                tab1, tab2, tab3 = st.tabs(['Count', 'Crowd level','Table'])
                 with tab1:
-                    fig = px.line(df.iloc[-200:], x="time", y="count", color='area',line_shape="spline", render_mode="svg")
+                    fig = px.line(df.iloc[-200:], x="time", y="count", color='area',line_shape="linear", render_mode="svg")
                     fig.update_yaxes(range=[0, 30])
                     st.write(fig)
                 with tab2:
                     fig2 = px.timeline(df.iloc[-200:],x_start="time",x_end="time_end", y="area", color="crowd_level", color_discrete_map={'low': 'green', 'medium': 'yellow', 'high': 'orange', 'very_high': 'red'})
-                    fig2.update_xaxes(tickformat = '%S')
+                    # fig2.update_xaxes(tickformat = '%S')
                     st.write(fig2)
-                for video, frame in frames.items():
-                    st.image(frame, caption=video, width=640)
+                with tab3:
+                    df_tab = st.tabs(list(df['area'].unique()))
+                    for tab,area in zip(df_tab, list(df['area'].unique())):
+                        with tab:
+                            st.write(df[df['area'] == area])
+                    # st.write(df)
+                # split frame to dynamic tab
+                frame_tab = st.tabs(list(map(lambda x: Path(x).stem,frames.keys())))
+                for tab,video in zip(frame_tab, list(frames.keys())):
+                    with tab:
+                        st.image(frames[video],width=640)  
+              
+        if not state.process:
+            df = pd.DataFrame(results)
+            predict = {'time': [],'area': [], 'count': []}
+            predict_step = 100
+            for video in path:
+                for area in areas_info[video]:
+                    print("start fitting")
+                    # print(df[df['area'] == area][['count']])
+                    SARIMAX_model = pm.auto_arima(df[df['area'] == area][['count']].reset_index(drop = True),
+                               start_p=1, start_q=1,
+                               test='adf',
+                               max_p=3, max_q=3, m=12,
+                               start_P=0, seasonal=True,
+                               d=None, D=1, 
+                               trace=False,
+                               error_action='ignore',  
+                               suppress_warnings=True, 
+                               stepwise=True)
+                    
+                    print('start predicting' + area)
+                    fit_data = SARIMAX_model.predict(n_periods=predict_step)
+                    del SARIMAX_model
+                    temp_ = list(range(predict_step))
+                    predict['time'].extend(list(map(lambda x: timestamp2datetime(x/fps[video]),temp_)))
+                    predict['area'].extend([area] * predict_step)
+                    predict['count'].extend(fit_data)
+            predict = pd.DataFrame(predict)
+            predict = predict.groupby(['area', 'time']).agg({'count': 'max'}).reset_index()
+            # show predict result as line chart
+            fig = px.line(predict, x="time", y="count", color='area',line_shape="linear", render_mode="svg")
+            fig.update_yaxes(range=[0, 30])
+            st.write(fig)
+
+def timestamp2datetime(s):
+   return datetime.fromtimestamp(int(s)).strftime("%Y-%m-%d %H:%M:%S")
 
 if __name__ == "__main__":
     main()

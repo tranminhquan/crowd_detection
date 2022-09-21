@@ -38,9 +38,9 @@ def show(stroke_width, stroke_color, bg_image, drawing_mode, scale_width, scale_
                     k['area_name'] = (cols[0].text_input('Area ' + str(i), 'Area ' + str(i))) 
                     # k['crowd_levels'] = (cols[1].slider('Choose medium crowd level', 0, 100, (1,50)))
                     k['crowd_levels'] = {}
-                    k['crowd_levels']['medium'] = (cols[1].number_input('Medium crowd level', 0, 100, 5))
-                    k['crowd_levels']['high'] = (cols[1].number_input('High crowd level', 0, 200, 20))
-                    k['crowd_levels']['very_high'] = (cols[1].number_input('Very high crowd level', 0, 300, 30))
+                    k['crowd_levels']['medium'] = (cols[1].number_input('Medium crowd level', 0, 100, 5,key='medium'+str(i) + key))
+                    k['crowd_levels']['high'] = (cols[1].number_input('High crowd level', 0, 200, 20,key='high'+str(i) + key))
+                    k['crowd_levels']['very_high'] = (cols[1].number_input('Very high crowd level', 0, 300, 30,key='very_high'+str(i) + key))
                     x1, y1 = scale_width*k['left'], scale_height*k['top']
                     x2, y2 = scale_width*(k['left'] + k['width']), scale_height*(k['top'] + k['height'])
                     cols[2].write([x1, y1, x2,  y2])
