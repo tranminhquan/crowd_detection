@@ -175,39 +175,37 @@ def main():
                 for tab,video in zip(frame_tab, list(frames.keys())):
                     with tab:
                         st.image(frames[video],width=640)  
-              
         if not state.process:
-            df = pd.DataFrame(results)
-            predict = {'time': [],'area': [], 'count': []}
-            predict_step = 100
-            for video in path:
-                for area in areas_info[video]:
-                    print("start fitting")
-                    # print(df[df['area'] == area][['count']])
-                    SARIMAX_model = pm.auto_arima(df[df['area'] == area][['count']].reset_index(drop = True),
-                               start_p=1, start_q=1,
-                               test='adf',
-                               max_p=3, max_q=3, m=12,
-                               start_P=0, seasonal=True,
-                               d=None, D=1, 
-                               trace=False,
-                               error_action='ignore',  
-                               suppress_warnings=True, 
-                               stepwise=True)
-                    
-                    print('start predicting' + area)
-                    fit_data = SARIMAX_model.predict(n_periods=predict_step)
-                    del SARIMAX_model
-                    temp_ = list(range(predict_step))
-                    predict['time'].extend(list(map(lambda x: timestamp2datetime(x/fps[video]),temp_)))
-                    predict['area'].extend([area] * predict_step)
-                    predict['count'].extend(fit_data)
-            predict = pd.DataFrame(predict)
-            predict = predict.groupby(['area', 'time']).agg({'count': 'max'}).reset_index()
-            # show predict result as line chart
-            fig = px.line(predict, x="time", y="count", color='area',line_shape="linear", render_mode="svg")
-            fig.update_yaxes(range=[0, 30])
-            st.write(fig)
+                df = pd.DataFrame(results)
+                predict = {'time': [],'area': [], 'count': []}
+                predict_step = 100
+                for video in path:
+                    for area in areas_info[video]:
+                        print("start fitting")
+                        # print(df[df['area'] == area][['count']])
+                        SARIMAX_model = pm.auto_arima(df[df['area'] == area].iloc[:30][['count']].reset_index(drop = True), 
+                                start_p=1, start_q=1,
+                                test='adf',
+                                max_p=3, max_q=3, m=12,
+                                start_P=0, seasonal=True,
+                                d=None, D=1, 
+                                trace=False,
+                                error_action='ignore',  
+                                suppress_warnings=True, 
+                                stepwise=True)
+                        
+                        print('start predicting' + area)
+                        fit_data = SARIMAX_model.predict(n_periods=predict_step)
+                        st.write(fit_data)
+                        predict['time'].extend(list(map(lambda x: timestamp2datetime(x/fps[video]),list(range(predict_step)))))
+                        predict['area'].extend([area] * predict_step)
+                        predict['count'].extend(fit_data)
+                predict = pd.DataFrame(predict)
+                predict = predict.groupby(['area', 'time']).agg({'count': 'max'}).reset_index()
+                # show predict result as line chart
+                fig = px.line(predict, x="time", y="count", color='area',line_shape="linear", render_mode="svg")
+                fig.update_yaxes(range=[0, 30])
+                st.write(fig)
 
 def timestamp2datetime(s):
    return datetime.fromtimestamp(int(s)).strftime("%Y-%m-%d %H:%M:%S")
