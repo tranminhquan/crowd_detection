@@ -48,6 +48,7 @@ def main():
     areas_info = {}
     areas_draw = {}
     areas_crowd = {}
+    lines_info = {}
     for video_path in path:
         image = get_images(video_path)
         # Show the image with streamlit canvas
@@ -57,7 +58,7 @@ def main():
         scale_height = image.shape[0] / 480
         images.append(image)
 
-        areas_info[video_path], areas_draw[video_path],areas_crowd[video_path] = show_drawing.show(stroke_width, stroke_color, image, drawing_mode, scale_width, scale_height, None, key = video_path)
+        areas_info[video_path], areas_draw[video_path],areas_crowd[video_path],lines_info[video_path] = show_drawing.show(stroke_width, stroke_color, image, drawing_mode, scale_width, scale_height, None, key = video_path)
     print('skip_frame', skip_frame)
     st.spinner('Testing...')
     if st.button("Start setting", key = 'start_proccess'):
@@ -110,6 +111,12 @@ def main():
                 
                 # get center from xyxy of boxes calculate by numpy
                 # initialize emty center numpy array with shape (1,2)
+                # draw lines_info to frame
+                for line_name, line in lines_info[video].items():
+                    x1, y1, x2, y2 = list(map(int, line))
+
+                    cv2.line(frame, (x1, y1), (x2, y2), stroke_color, stroke_width)
+                    cv2.putText(frame, line_name, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, stroke_color, stroke_width)
                 for area_name, area in areas_info[video].items():
                     
                     #draw rectangle area on frame
@@ -134,6 +141,7 @@ def main():
                         crowd_level = 'critical'
                         
                     #update results dict
+                    fps[video] = 30
                     results['time'].append(timestamp2datetime( id_frame / fps[video] + 1662656400))
                     # results['time'].append(id_frame)
                     results['time_end'].append(timestamp2datetime( id_frame / fps[video] + 1 + 1662656400))
@@ -174,38 +182,43 @@ def main():
                 frame_tab = st.tabs(list(map(lambda x: Path(x).stem,frames.keys())))
                 for tab,video in zip(frame_tab, list(frames.keys())):
                     with tab:
-                        st.image(frames[video],width=640)  
-        if not state.process:
-                df = pd.DataFrame(results)
-                predict = {'time': [],'area': [], 'count': []}
-                predict_step = 100
-                for video in path:
-                    for area in areas_info[video]:
-                        print("start fitting")
-                        # print(df[df['area'] == area][['count']])
-                        SARIMAX_model = pm.auto_arima(df[df['area'] == area].iloc[:30][['count']].reset_index(drop = True), 
-                                start_p=1, start_q=1,
-                                test='adf',
-                                max_p=3, max_q=3, m=12,
-                                start_P=0, seasonal=True,
-                                d=None, D=1, 
-                                trace=False,
-                                error_action='ignore',  
-                                suppress_warnings=True, 
-                                stepwise=True)
+                        # get height of frame
+                        height, width, _ = frames[video].shape
+                        if height > 500:
+                            st.image(frames[video],width=300)
+                        else:  
+                            st.image(frames[video],width=640)  
+        # if not state.process:
+        #         df = pd.DataFrame(results)
+        #         predict = {'time': [],'area': [], 'count': []}
+        #         predict_step = 100
+        #         for video in path:
+        #             for area in areas_info[video]:
+        #                 print("start fitting")
+        #                 # print(df[df['area'] == area][['count']])
+        #                 SARIMAX_model = pm.auto_arima(df[df['area'] == area].iloc[:30][['count']].reset_index(drop = True), 
+        #                         start_p=1, start_q=1,
+        #                         test='adf',
+        #                         max_p=3, max_q=3, m=12,
+        #                         start_P=0, seasonal=True,
+        #                         d=None, D=1, 
+        #                         trace=False,
+        #                         error_action='ignore',  
+        #                         suppress_warnings=True, 
+        #                         stepwise=True)
                         
-                        print('start predicting' + area)
-                        fit_data = SARIMAX_model.predict(n_periods=predict_step)
-                        st.write(fit_data)
-                        predict['time'].extend(list(map(lambda x: timestamp2datetime(x/fps[video]),list(range(predict_step)))))
-                        predict['area'].extend([area] * predict_step)
-                        predict['count'].extend(fit_data)
-                predict = pd.DataFrame(predict)
-                predict = predict.groupby(['area', 'time']).agg({'count': 'max'}).reset_index()
-                # show predict result as line chart
-                fig = px.line(predict, x="time", y="count", color='area',line_shape="linear", render_mode="svg")
-                fig.update_yaxes(range=[0, 30])
-                st.write(fig)
+        #                 print('start predicting' + area)
+        #                 fit_data = SARIMAX_model.predict(n_periods=predict_step)
+        #                 st.write(fit_data)
+        #                 predict['time'].extend(list(map(lambda x: timestamp2datetime(x/fps[video]),list(range(predict_step)))))
+        #                 predict['area'].extend([area] * predict_step)
+        #                 predict['count'].extend(fit_data)
+        #         predict = pd.DataFrame(predict)
+        #         predict = predict.groupby(['area', 'time']).agg({'count': 'max'}).reset_index()
+        #         # show predict result as line chart
+        #         fig = px.line(predict, x="time", y="count", color='area',line_shape="linear", render_mode="svg")
+        #         fig.update_yaxes(range=[0, 30])
+        #         st.write(fig)
 
 def timestamp2datetime(s):
    return datetime.fromtimestamp(int(s)).strftime("%Y-%m-%d %H:%M:%S")

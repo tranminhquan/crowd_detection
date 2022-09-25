@@ -1,7 +1,7 @@
 import streamlit as st
 def show():
     drawing_mode = st.sidebar.selectbox(
-        "Drawing tool:", ("rect",)
+        "Drawing tool:", ("rect","line")
     )
 
     stroke_width = st.sidebar.slider("Stroke width: ", 1, 25, 3)

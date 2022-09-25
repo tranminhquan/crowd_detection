@@ -57,5 +57,26 @@ def show(stroke_width, stroke_color, bg_image, drawing_mode, scale_width, scale_
                 areas_info[str(k['area_name'])] = [x1, y1, x2,  y2]
                 areas_crowd[str(k['area_name'])] = k['crowd_levels']
                 areas_draw[str(k['area_name'])] = [k['stroke'], k['strokeWidth']]
-                   
-    return areas_info, areas_draw, areas_crowd
+
+    with st.expander("Queue line", expanded=False):
+        with st.form(key="Line" + key):
+            if canvas_result.json_data is not None:
+                for i, k in enumerate([k for k in canvas_result.json_data['objects'] if k['type'] == 'line']):
+                    cols = st.columns(2)
+                    k['line'] = (cols[0].text_input('Line ' + str(i), k['line'] if 'line' in k else 'Line ' + str(i)))                    
+                    x1, y1 = scale_width*(k['left'] + k['x1']), scale_height*(k['top'] + k['y1'])
+                    x2, y2 = scale_width*(k['left'] + k['x2']), scale_height*(k['top'] + k['y2'])
+                    cols[1].write([x1, y1, x2,  y2])
+                    
+            st.form_submit_button("Create lines")
+            
+        lines_info = {}
+        lines_draw = {}
+       
+        if canvas_result.json_data is not None:
+            for i, k in enumerate([k for k in canvas_result.json_data['objects'] if k['type'] == 'line']):
+                x1, y1 = scale_width*(k['left'] + k['x1']), scale_height*(k['top'] + k['y1'])
+                x2, y2 = scale_width*(k['left'] + k['x2']), scale_height*(k['top'] + k['y2'])
+                lines_info[str(k['line'])] = [x1, y1, x2,  y2]
+                # lines_draw[str(k['line'])] = [tuple(int(k['stroke'].lstrip('#')[i:i+2], 16) for i in (0, 2, 4)), k['strokeWidth']]     
+    return areas_info, areas_draw, areas_crowd,lines_info
