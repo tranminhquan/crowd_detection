@@ -22,7 +22,7 @@ def get_images(video_path):
     return frame
 
 def main():
-    model = torch.hub.load('ultralytics/yolov5', 'custom', path='crowdhuman_yolov5m.pt')  
+    model = torch.hub.load('ultralytics/yolov5', 'custom', path='/data/jupyter/maindata/mle_duytran/crow-human/crowdhuman_yolov5m.pt')  
     # model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
     model.classes = [0]
     # state = SessionState.get(
@@ -189,12 +189,11 @@ def main():
                     results['count'].append(count)
                     results['crowd_level'].append(crowd_level)
                     results['people_count'].append(people_counts[area_name])
-                
                 frames[video] = frame
         t2 = time.time()
         print('time', t2 - t1)
         print('frame', id_frame)
-            # show_results.show(results,frames,placeholder, result_queue)
+        show_results.show(results,frames,placeholder, result_queue)
 
 if __name__ == "__main__":
 
