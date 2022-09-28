@@ -1,20 +1,16 @@
-from datetime import datetime
 import os
-from pathlib import Path
 import streamlit as st
 import cv2
-from stream import show_sidebar, show_drawing
+from stream import show_sidebar, show_drawing, show_results, show_settings
 import numpy as np
-import plotly.express as px  
-import plotly.figure_factory as ff
-import plotly.graph_objects as go
-import pandas as pd 
-from threading import Thread
-from detect import detect
+from detect import count_base_motion, detect, get_union_area, reid_base_boxes, count_people_in_queue, speed_track
+from util import *
+from optical_flow import OpticalFlow
 import torch
 
 from statsmodels.tsa.stattools import adfuller
-import pmdarima as pm
+
+import time
 
 ROOT_PATH = os.path.join(os.getcwd(), 'videos')
 
@@ -26,10 +22,9 @@ def get_images(video_path):
     return frame
 
 def main():
-
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
+    model = torch.hub.load('ultralytics/yolov5', 'custom', path='crowdhuman_yolov5m.pt')  
+    # model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
     model.classes = [0]
-
     # state = SessionState.get(
     #     upload_key=None, enabled=True, start=False, run=False)
     state = st.session_state
@@ -38,7 +33,6 @@ def main():
     path = [os.path.join(ROOT_PATH, p) for p in path]
 
     drawing_mode, stroke_width, stroke_color, skip_frame, runtime_type = show_sidebar.show()
-    print('stroke color', stroke_color)
     if runtime_type == 'GPU':
         model.cuda()
     else:
@@ -49,16 +43,34 @@ def main():
     areas_draw = {}
     areas_crowd = {}
     lines_info = {}
+    motion_detectors = {}
+    queues_info = {}
+    queue_in_area = {}
+    queue_optical_flow = {}
+    queue_distance = {}
     for video_path in path:
         image = get_images(video_path)
         # Show the image with streamlit canvas
         image = cv2.cvtColor(
-        image, cv2.COLOR_BGR2RGB) 
+        image, cv2.COLOR_BGR2RGB)
+        print('shpae', image.shape)
         scale_width = image.shape[1] / 640
         scale_height = image.shape[0] / 480
         images.append(image)
 
-        areas_info[video_path], areas_draw[video_path],areas_crowd[video_path],lines_info[video_path] = show_drawing.show(stroke_width, stroke_color, image, drawing_mode, scale_width, scale_height, None, key = video_path)
+        areas_info[video_path], areas_draw[video_path],areas_crowd[video_path],lines_info[video_path],queues_info[video_path] = show_drawing.show(stroke_width, stroke_color, image, drawing_mode, scale_width, scale_height, None, key = video_path)
+        # check if polygon queue inside rectangle area
+        for area_name, area in areas_info[video_path].items():
+            area = list(map(int, area))
+            queue_in_area[area_name] = []
+            for queue_name, queue in queues_info[video_path].items():
+                for point in queue:
+                    if area[0] < point[0] < area[2] and area[1] < point[1] < area[3]:
+                        queue_in_area[area_name].append(queue_name)
+                        break
+        for area_name, area in areas_info.items():
+            motion_detectors[area_name] = cv2.createBackgroundSubtractorKNN(detectShadows=False)
+    print('queue_in_area', queue_in_area)
     print('skip_frame', skip_frame)
     st.spinner('Testing...')
     if st.button("Start setting", key = 'start_proccess'):
@@ -75,11 +87,18 @@ def main():
         state.caps = caps
         state.process = True
         placeholder = st.empty()
-        results = {'time': [],'area': [], 'count': [], 'crowd_level': [],'time_end': []}
+        results = {'time': [],'area': [], 'count': [], 'crowd_level': [],'time_end': [], 'people_count': []}
+        result_queue = {'time': [], 'queue': [], 'queue_count': [], 'wait_time': []}
         id_frame = 0
         boxes = {}
         frames = {}
+        people_counts = {}
+        reid_boxes = {}
+        queue_wait = {}
+        t1 = time.time()
+
         while state.process:
+            
             id_frame += 1
             state.process = False
             #initialize dict to store the results
@@ -96,36 +115,40 @@ def main():
                 if video not in boxes or id_frame % skip_frame == 0:
                     #process the frame
                     # print('process', id_frame)
-                    boxes[video] = detect(model,frame)
+                    boxes__ = []
+                    for area_name, area in areas_info[video].items():
+                        #draw rectangle area on frame
+                        x1, y1, x2, y2 = list(map(int, area))
+                        #create new frame with area
+                        frame_area = frame[y1:y2, x1:x2]
+                        #detect object in frame
+                        boxes_ = detect(model,frame_area)
+                        people_count = count_base_motion(motion_detectors[video],frame_area,boxes_)
+                        people_counts[area_name] = people_count
+                        x1, y1, x2, y2 = list(map(int, area))
+                        boxes_[:, 0] += x1
+                        boxes_[:, 1] += y1
+                        boxes_[:, 2] += x1
+                        boxes_[:, 3] += y1
+                        boxes__.append(boxes_)
 
+                    boxes[video] = np.concatenate(boxes__)
+                        
                 #draw the boxes
+                for queue_name, queue in queues_info[video].items():
+                    if queue_name not in queue_optical_flow:
+                        queue_optical_flow[queue_name] = OpticalFlow(frame=frame, queue=queue)
+                    distance_change = queue_optical_flow[queue_name].get_speed(frame) // 1.3 + 0.1
+                    if distance_change < 0.2:
+                        distance_change = 0.001
+                    # print('distance_change', distance_change)
+                    queue_distance[queue_name] = distance_change 
                 centers = np.zeros((1,2))
                 centers = (boxes[video][:, 2:] + boxes[video][:, :2]) / 2
-                for (x1, y1, x2, y2) in boxes[video]:
-                    x1, y1, x2, y2 = list(map(int, [x1, y1, x2, y2]))
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                frame = show_settings.show(frame, boxes[video], lines_info[video],queues_info[video],areas_info[video],stroke_color,stroke_width)
 
-                for (x,y) in centers:
-                    x, y = list(map(int, [x, y]))
-                    cv2.circle(frame, (x, y), 2, (0, 0, 255), 2)
-                
-                # get center from xyxy of boxes calculate by numpy
-                # initialize emty center numpy array with shape (1,2)
-                # draw lines_info to frame
-                for line_name, line in lines_info[video].items():
-                    x1, y1, x2, y2 = list(map(int, line))
-
-                    cv2.line(frame, (x1, y1), (x2, y2), stroke_color, stroke_width)
-                    cv2.putText(frame, line_name, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, stroke_color, stroke_width)
                 for area_name, area in areas_info[video].items():
                     
-                    #draw rectangle area on frame
-                    x1, y1, x2, y2 = list(map(int, area))
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), stroke_color, stroke_width)
-                    #put text on frame
-                    cv2.putText(frame, area_name, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, stroke_color, stroke_width)
-
-
                     # count number of center in each area
                     count = 0
                     count = ((centers[:, 0] > area[0]) & (centers[:, 0] < area[2]) & (centers[:, 1] > area[1]) & (centers[:, 1] < area[3])).sum()
@@ -139,89 +162,40 @@ def main():
                         crowd_level = 'high'
                     else:
                         crowd_level = 'critical'
-                        
+                    
+                    for queue_name in queue_in_area[area_name]:
+                        # count number of people in queue
+                        queue = queues_info[video][queue_name]
+                        queue_count = count_people_in_queue(frame,queue,centers)
+                        result_queue['queue_count'].append(queue_count)
+                        result_queue['queue'].append(queue_name)
+                        # calculate wait time
+                        e_wait = 0.3
+                        wait_time = queue_count / ( e_wait * queue_distance[queue_name])
+                        # print('wait_time', wait_time)
+                        if wait_time > 1000.0:
+                            wait_time =  fps[video]  * 30
+                        if queue_name not in queue_wait:
+                            queue_wait[queue_name] = wait_time
+                        else:
+                            queue_wait[queue_name] = 0.9* queue_wait[queue_name]  + 0.1* wait_time 
+                        result_queue['wait_time'].append(queue_wait[queue_name] / fps[video])
+                        result_queue['time'].append(timestamp2datetime( id_frame / fps[video] + 1662656400))
                     #update results dict
-                    fps[video] = 30
+                    # fps[video] = 30
                     results['time'].append(timestamp2datetime( id_frame / fps[video] + 1662656400))
-                    # results['time'].append(id_frame)
                     results['time_end'].append(timestamp2datetime( id_frame / fps[video] + 1 + 1662656400))
-
-                    # results['time'].append(id_frame)
                     results['area'].append(area_name)
                     results['count'].append(count)
                     results['crowd_level'].append(crowd_level)
+                    results['people_count'].append(people_counts[area_name])
+                
                 frames[video] = frame
-
-            #convert results dict to pandas dataframe
-            df = pd.DataFrame(results)
-            #add column time_end = time + 1/fps to calculate the duration of each area
-            # df['time_end'] = df['time'] + 1
-            # print(df)
-            #group by area and time to calculate the duration of each area
-            df = df.groupby(['area', 'time', 'time_end']).agg({'count': 'max', 'crowd_level': 'max'}).reset_index()
-            # df = df.groupby(['area', 'time', 'time_end','crowd_level']).agg({'count': 'mean', 'crowd_level': }).reset_index()
-            with placeholder.container():
-            
-                #plot the results
-                tab1, tab2, tab3 = st.tabs(['Count', 'Crowd level','Table'])
-                with tab1:
-                    fig = px.line(df.iloc[-200:], x="time", y="count", color='area',line_shape="linear", render_mode="svg")
-                    fig.update_yaxes(range=[0, 30])
-                    st.write(fig)
-                with tab2:
-                    fig2 = px.timeline(df.iloc[-200:],x_start="time",x_end="time_end", y="area", color="crowd_level", color_discrete_map={'low': 'green', 'medium': 'yellow', 'high': 'orange', 'very_high': 'red'})
-                    # fig2.update_xaxes(tickformat = '%S')
-                    st.write(fig2)
-                with tab3:
-                    df_tab = st.tabs(list(df['area'].unique()))
-                    for tab,area in zip(df_tab, list(df['area'].unique())):
-                        with tab:
-                            st.write(df[df['area'] == area])
-                    # st.write(df)
-                # split frame to dynamic tab
-                frame_tab = st.tabs(list(map(lambda x: Path(x).stem,frames.keys())))
-                for tab,video in zip(frame_tab, list(frames.keys())):
-                    with tab:
-                        # get height of frame
-                        height, width, _ = frames[video].shape
-                        if height > 500:
-                            st.image(frames[video],width=300)
-                        else:  
-                            st.image(frames[video],width=640)  
-        # if not state.process:
-        #         df = pd.DataFrame(results)
-        #         predict = {'time': [],'area': [], 'count': []}
-        #         predict_step = 100
-        #         for video in path:
-        #             for area in areas_info[video]:
-        #                 print("start fitting")
-        #                 # print(df[df['area'] == area][['count']])
-        #                 SARIMAX_model = pm.auto_arima(df[df['area'] == area].iloc[:30][['count']].reset_index(drop = True), 
-        #                         start_p=1, start_q=1,
-        #                         test='adf',
-        #                         max_p=3, max_q=3, m=12,
-        #                         start_P=0, seasonal=True,
-        #                         d=None, D=1, 
-        #                         trace=False,
-        #                         error_action='ignore',  
-        #                         suppress_warnings=True, 
-        #                         stepwise=True)
-                        
-        #                 print('start predicting' + area)
-        #                 fit_data = SARIMAX_model.predict(n_periods=predict_step)
-        #                 st.write(fit_data)
-        #                 predict['time'].extend(list(map(lambda x: timestamp2datetime(x/fps[video]),list(range(predict_step)))))
-        #                 predict['area'].extend([area] * predict_step)
-        #                 predict['count'].extend(fit_data)
-        #         predict = pd.DataFrame(predict)
-        #         predict = predict.groupby(['area', 'time']).agg({'count': 'max'}).reset_index()
-        #         # show predict result as line chart
-        #         fig = px.line(predict, x="time", y="count", color='area',line_shape="linear", render_mode="svg")
-        #         fig.update_yaxes(range=[0, 30])
-        #         st.write(fig)
-
-def timestamp2datetime(s):
-   return datetime.fromtimestamp(int(s)).strftime("%Y-%m-%d %H:%M:%S")
+        t2 = time.time()
+        print('time', t2 - t1)
+        print('frame', id_frame)
+            # show_results.show(results,frames,placeholder, result_queue)
 
 if __name__ == "__main__":
+
     main()
