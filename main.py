@@ -190,10 +190,10 @@ def main():
                     results['crowd_level'].append(crowd_level)
                     results['people_count'].append(people_counts[area_name])
                 frames[video] = frame
+            show_results.show(results,frames,placeholder, result_queue)
         t2 = time.time()
         print('time', t2 - t1)
         print('frame', id_frame)
-        show_results.show(results,frames,placeholder, result_queue)
 
 if __name__ == "__main__":
 
