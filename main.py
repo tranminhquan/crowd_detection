@@ -145,7 +145,7 @@ def main():
                     queue_distance[queue_name] = distance_change 
                 centers = np.zeros((1,2))
                 centers = (boxes[video][:, 2:] + boxes[video][:, :2]) / 2
-                frame = show_settings.show(frame, boxes[video], lines_info[video],queues_info[video],areas_info[video],stroke_color,stroke_width)
+                
 
                 for area_name, area in areas_info[video].items():
                     
@@ -155,13 +155,13 @@ def main():
                     # check crowd level in area
                     crowd_range = areas_crowd[video][area_name]
                     if count < crowd_range['medium']:
-                        crowd_level = 'low'
+                        crowd_level = '1low'
                     elif count < crowd_range['high']:
-                        crowd_level = 'medium'
+                        crowd_level = '2medium'
                     elif count < crowd_range['very_high']:
-                        crowd_level = 'high'
+                        crowd_level = '3high'
                     else:
-                        crowd_level = 'critical'
+                        crowd_level = '4critical'
                     
                     for queue_name in queue_in_area[area_name]:
                         # count number of people in queue
@@ -189,8 +189,9 @@ def main():
                     results['count'].append(count)
                     results['crowd_level'].append(crowd_level)
                     results['people_count'].append(people_counts[area_name])
+                frame = show_settings.show(frame, boxes[video], lines_info[video],queues_info[video],areas_info[video],stroke_color,stroke_width)
                 frames[video] = frame
-            show_results.show(results,frames,placeholder, result_queue)
+            show_results.show(results,result_queue,frames,placeholder,areas_info,queue_in_area)
         t2 = time.time()
         print('time', t2 - t1)
         print('frame', id_frame)
